@@ -1,0 +1,16 @@
+App(
+    appid="jammer_app",
+    name="Jammer",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="jammer_app",
+    requires=["gui", "subghz", "furi"],
+    cdefines=["APP_JAMMER"],
+    stack_size=2 * 1024,
+    fap_category="Sub-GHz",
+    fap_version="0.1",
+    fap_icon_assets="assets",
+    fap_author="@RocketGod-git",
+    fap_description="Jammer for Flipper Zero",
+    fap_icon="icons/jammer_icon.png",
+    fap_weburl="https://github.com/RocketGod-Git/Flipper-Zero-Jammer",
+)
