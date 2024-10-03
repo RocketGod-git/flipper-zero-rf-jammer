@@ -9,15 +9,78 @@ static const char* jamming_modes[] = {
     "Bruteforce 0xFF"
 };
 
+typedef struct {
+    uint32_t min;
+    uint32_t max;
+} FrequencyBand;
+
+static const FrequencyBand valid_frequency_bands[] = {
+    {300000000, 348000000},
+    {387000000, 464000000},
+    {779000000, 928000000}
+};
+
+#define NUM_FREQUENCY_BANDS (sizeof(valid_frequency_bands) / sizeof(valid_frequency_bands[0]))
+
+static bool is_frequency_valid(uint32_t frequency) {
+    for(size_t i = 0; i < NUM_FREQUENCY_BANDS; i++) {
+        if(frequency >= valid_frequency_bands[i].min && frequency <= valid_frequency_bands[i].max) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint32_t adjust_frequency_to_valid(uint32_t frequency, bool up) {
+    if(is_frequency_valid(frequency)) {
+        return frequency;
+    } else {
+        if(up) {
+            for(size_t i = 0; i < NUM_FREQUENCY_BANDS; i++) {
+                if(frequency < valid_frequency_bands[i].min) {
+                    return valid_frequency_bands[i].min;
+                }
+            }
+            return valid_frequency_bands[0].min;
+        } else {
+            for(int i = NUM_FREQUENCY_BANDS - 1; i >= 0; i--) {
+                if(frequency > valid_frequency_bands[i].max) {
+                    return valid_frequency_bands[i].max;
+                }
+            }
+            return valid_frequency_bands[NUM_FREQUENCY_BANDS - 1].max;
+        }
+    }
+}
+
 static void jammer_draw_callback(Canvas* canvas, void* context) {
     JammerApp* app = (JammerApp*)context;
     canvas_clear(canvas);
+
     char freq_str[20];
     snprintf(freq_str, sizeof(freq_str), "%3lu.%02lu",
              app->frequency / 1000000,
              (app->frequency % 1000000) / 10000);
-    canvas_set_font(canvas, FontBigNumbers);
-    canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignTop, freq_str);
+
+    int total_width = strlen(freq_str) * 12;
+    int start_x = (128 - total_width) / 2;
+    int digit_position = 0;
+
+    for(size_t i = 0; i < strlen(freq_str); i++) {
+        bool highlight = (digit_position == app->cursor_position);
+
+        if(freq_str[i] != '.') {
+            canvas_set_font(canvas, highlight ? FontBigNumbers : FontPrimary);
+            char temp[2] = {freq_str[i], '\0'};
+            canvas_draw_str_aligned(canvas, start_x + (i * 12), 10, AlignCenter, AlignTop, temp);
+            digit_position++;
+        } else {
+            canvas_set_font(canvas, FontPrimary);
+            char temp[2] = {freq_str[i], '\0'};
+            canvas_draw_str_aligned(canvas, start_x + (i * 12), 10, AlignCenter, AlignTop, temp);
+        }
+    }
+
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, 64, 55, AlignCenter, AlignTop, jamming_modes[app->jamming_mode]);
 }
@@ -27,44 +90,69 @@ static void jammer_input_callback(InputEvent* input_event, void* context) {
     furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
 }
 
+static bool subghz_tx_rx_worker_start_with_retry(SubGhzTxRxWorker* worker, SubGhzDevice* device, uint32_t frequency) {
+    int retries = 3;
+    while(retries--) {
+        if(subghz_tx_rx_worker_start(worker, device, frequency)) {
+            return true;
+        }
+        furi_delay_ms(10);
+    }
+    return false;
+}
+
 static void jammer_adjust_frequency(JammerApp* app, bool up) {
-    uint32_t step_sizes[] = {100000000, 10000000, 1000000, 10000, 1000};
-    uint32_t step = 0;
+    uint32_t frequency = app->frequency;
 
     if(app->cursor_position == 3) {
         return;
     }
 
-    int step_index = app->cursor_position;
-    if(app->cursor_position > 3) {
-        step_index = app->cursor_position - 1;
-    }
-
-    step = step_sizes[step_index];
-
-    uint32_t new_frequency = up ? app->frequency + step : app->frequency - step;
-
-    if(!subghz_devices_is_frequency_valid(app->device, new_frequency)) {
-        if(up) {
-            if(new_frequency < 387000000) {
-                new_frequency = 387000000;
-            } else if(new_frequency < 779000000) {
-                new_frequency = 779000000;
-            } else if(new_frequency > SUBGHZ_FREQUENCY_MAX) {
-                new_frequency = SUBGHZ_FREQUENCY_MIN;
+    if(app->cursor_position == 0) {
+        uint8_t valid_hundreds[] = {3, 4, 7, 8, 9};
+        int num_valid = sizeof(valid_hundreds) / sizeof(valid_hundreds[0]);
+        uint8_t current_hundred = frequency / 100000000;
+        int index = -1;
+        for(int i = 0; i < num_valid; i++) {
+            if(valid_hundreds[i] == current_hundred) {
+                index = i;
+                break;
             }
+        }
+        if(index == -1) {
+            index = up ? 0 : num_valid - 1;
         } else {
-            if(new_frequency > 464000000) {
-                new_frequency = 464000000;
-            } else if(new_frequency > 348000000) {
-                new_frequency = 348000000;
-            } else if(new_frequency < SUBGHZ_FREQUENCY_MIN) {
-                new_frequency = SUBGHZ_FREQUENCY_MAX;
-            }
+            index = up ? (index + 1) % num_valid : (index - 1 + num_valid) % num_valid;
+        }
+        uint8_t new_hundred = valid_hundreds[index];
+        frequency = (frequency % 100000000) + new_hundred * 100000000;
+    } else {
+        uint32_t step_sizes[] = {100000000, 10000000, 1000000, 10000, 1000};
+        int step_index = app->cursor_position;
+        if(app->cursor_position > 3) {
+            step_index = app->cursor_position - 1;
+        }
+        uint32_t step = step_sizes[step_index];
+        frequency = up ? frequency + step : frequency - step;
+
+        if(frequency > SUBGHZ_FREQUENCY_MAX) {
+            frequency = SUBGHZ_FREQUENCY_MIN + (frequency - SUBGHZ_FREQUENCY_MAX - 1);
+        } else if(frequency < SUBGHZ_FREQUENCY_MIN) {
+            frequency = SUBGHZ_FREQUENCY_MAX - (SUBGHZ_FREQUENCY_MIN - frequency - 1);
         }
     }
 
-    app->frequency = new_frequency;
+    frequency = adjust_frequency_to_valid(frequency, up);
+
+    if(frequency != app->frequency) {
+        app->frequency = frequency;
+
+        if(app->tx_running) {
+            subghz_tx_rx_worker_stop(app->subghz_txrx);
+            furi_delay_ms(5);
+            subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency);
+        }
+    }
 }
 
 static int32_t jammer_tx_thread(void* context) {
@@ -84,6 +172,7 @@ static int32_t jammer_tx_thread(void* context) {
 
 static void jammer_switch_mode(JammerApp* app) {
     app->tx_running = false;
+
     if(app->tx_thread) {
         furi_thread_join(app->tx_thread);
         furi_thread_free(app->tx_thread);
@@ -119,7 +208,7 @@ static void jammer_switch_mode(JammerApp* app) {
             return;
     }
 
-    subghz_tx_rx_worker_start(app->subghz_txrx, app->device, app->frequency);
+    subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency);
 
     app->tx_running = true;
     app->tx_thread = furi_thread_alloc();
@@ -142,7 +231,7 @@ static bool jammer_init_subghz(JammerApp* app) {
 
     subghz_devices_load_preset(app->device, FuriHalSubGhzPresetOok650Async, NULL);
 
-    if(!subghz_tx_rx_worker_start(app->subghz_txrx, app->device, app->frequency)) {
+    if(!subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency)) {
         return false;
     }
 
@@ -155,7 +244,6 @@ static void jammer_splash_screen_draw_callback(Canvas* canvas, void* context) {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, 64, 15, AlignCenter, AlignTop, "RF Jammer");
-    canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignTop, "by RocketGod");
     canvas_draw_frame(canvas, 0, 0, 128, 64);
 }

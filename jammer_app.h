@@ -14,7 +14,6 @@
 #define SUBGHZ_FREQUENCY_MAX 928000000
 #define MESSAGE_MAX_LEN 256
 
-// Jamming Modes
 typedef enum {
     JammerModeOok650Async,
     JammerMode2FSKDev238Async,
@@ -25,13 +24,11 @@ typedef enum {
     JammerModeCount
 } JammerMode;
 
-// App State (Splash or Main App)
 typedef enum {
-    JammerStateSplash,  // Splash Screen State
-    JammerStateMain     // Main App State
+    JammerStateSplash,
+    JammerStateMain
 } JammerState;
 
-// Main App Struct
 typedef struct {
     Gui* gui;
     ViewPort* view_port;
@@ -44,7 +41,7 @@ typedef struct {
     SubGhzTxRxWorker* subghz_txrx;
     FuriThread* tx_thread;
     bool tx_running;
-    JammerState state;  // Add state to handle Splash and Main App logic
+    JammerState state;
 } JammerApp;
 
 JammerApp* jammer_app_alloc(void);
