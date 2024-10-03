@@ -144,7 +144,27 @@ static void jammer_adjust_frequency(JammerApp* app, bool up) {
 static int32_t jammer_tx_thread(void* context) {
     JammerApp* app = context;
     uint8_t jam_data[MESSAGE_MAX_LEN];
-    memset(jam_data, 0xFF, sizeof(jam_data));
+
+    switch(app->jamming_mode) {
+        case JammerModeOok650Async:
+            memset(jam_data, 0xFF, sizeof(jam_data));
+            break;
+        case JammerMode2FSKDev238Async:
+        case JammerMode2FSKDev476Async:
+            for(int i = 0; i < sizeof(jam_data); i++) {
+                jam_data[i] = (i % 2 == 0) ? 0xAA : 0x55;
+            }
+            break;
+        case JammerModeMSK99_97KbAsync:
+        case JammerModeGFSK9_99KbAsync:
+            for(int i = 0; i < sizeof(jam_data); i++) {
+                jam_data[i] = rand() % 256;
+            }
+            break;
+        case JammerModeBruteforce:
+            memset(jam_data, 0xFF, sizeof(jam_data));
+            break;
+    }
 
     while(app->tx_running) {
         while(!subghz_tx_rx_worker_write(app->subghz_txrx, jam_data, sizeof(jam_data))) {
@@ -228,6 +248,13 @@ static void jammer_splash_screen_draw_callback(Canvas* canvas, void* context) {
     UNUSED(context);
 
     canvas_clear(canvas);
+
+    for(int x = 0; x < 128; x += 8) {
+        for(int y = 0; y < 64; y += 8) {
+            canvas_draw_dot(canvas, x, y);
+        }
+    }
+
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, 64, 15, AlignCenter, AlignTop, "RF Jammer");
     canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignTop, "by RocketGod");
