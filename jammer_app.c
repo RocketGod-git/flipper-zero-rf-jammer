@@ -15,9 +15,9 @@ typedef struct {
 } FrequencyBand;
 
 static const FrequencyBand valid_frequency_bands[] = {
-    {300000000, 348000000},
-    {387000000, 464000000},
-    {779000000, 928000000}
+    {300000000, 348000000},  // Band 1
+    {387000000, 464000000},  // Band 2
+    {779000000, 928000000}   // Band 3
 };
 
 #define NUM_FREQUENCY_BANDS (sizeof(valid_frequency_bands) / sizeof(valid_frequency_bands[0]))
@@ -90,17 +90,6 @@ static void jammer_input_callback(InputEvent* input_event, void* context) {
     furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
 }
 
-static bool subghz_tx_rx_worker_start_with_retry(SubGhzTxRxWorker* worker, SubGhzDevice* device, uint32_t frequency) {
-    int retries = 3;
-    while(retries--) {
-        if(subghz_tx_rx_worker_start(worker, device, frequency)) {
-            return true;
-        }
-        furi_delay_ms(10);
-    }
-    return false;
-}
-
 static void jammer_adjust_frequency(JammerApp* app, bool up) {
     uint32_t frequency = app->frequency;
 
@@ -144,14 +133,11 @@ static void jammer_adjust_frequency(JammerApp* app, bool up) {
 
     frequency = adjust_frequency_to_valid(frequency, up);
 
-    if(frequency != app->frequency) {
-        app->frequency = frequency;
+    app->frequency = frequency;
 
-        if(app->tx_running) {
-            subghz_tx_rx_worker_stop(app->subghz_txrx);
-            furi_delay_ms(5);
-            subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency);
-        }
+    if(app->tx_running) {
+        subghz_tx_rx_worker_stop(app->subghz_txrx);
+        subghz_tx_rx_worker_start(app->subghz_txrx, app->device, app->frequency);
     }
 }
 
@@ -208,7 +194,7 @@ static void jammer_switch_mode(JammerApp* app) {
             return;
     }
 
-    subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency);
+    subghz_tx_rx_worker_start(app->subghz_txrx, app->device, app->frequency);
 
     app->tx_running = true;
     app->tx_thread = furi_thread_alloc();
@@ -231,7 +217,7 @@ static bool jammer_init_subghz(JammerApp* app) {
 
     subghz_devices_load_preset(app->device, FuriHalSubGhzPresetOok650Async, NULL);
 
-    if(!subghz_tx_rx_worker_start_with_retry(app->subghz_txrx, app->device, app->frequency)) {
+    if(!subghz_tx_rx_worker_start(app->subghz_txrx, app->device, app->frequency)) {
         return false;
     }
 
