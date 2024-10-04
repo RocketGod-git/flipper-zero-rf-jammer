@@ -2,6 +2,8 @@
 
 This **RF Jammer App** for the Flipper Zero, made by **RocketGod**, is a powerful tool for jamming across multiple radio frequencies and modulation schemes. Below is an in-depth look at each mode, from its technical details to the real-world impact of its jamming strategy.
 
+https://github.com/user-attachments/assets/4a34bc73-d419-480e-bb87-90216eb8a1e0
+
 ## 📡 Frequency Control
 
 The app supports multiple frequency bands, ensuring compliance with the ranges handled by the Flipper's sub-GHz radio:
