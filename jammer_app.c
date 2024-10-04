@@ -116,7 +116,7 @@ static void jammer_adjust_frequency(JammerApp* app, bool up) {
         uint8_t new_hundred = valid_hundreds[index];
         frequency = (frequency % 100000000) + new_hundred * 100000000;
     } else {
-        uint32_t step_sizes[] = {100000000, 10000000, 1000000, 10000, 1000};
+        uint32_t step_sizes[] = {100000000, 10000000, 1000000, 100000, 10000};
         int step_index = app->cursor_position;
         if(app->cursor_position > 3) {
             step_index = app->cursor_position - 1;
