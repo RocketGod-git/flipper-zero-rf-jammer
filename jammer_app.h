@@ -21,7 +21,6 @@ typedef enum {
     JammerModeMSK99_97KbAsync,
     JammerModeGFSK9_99KbAsync,
     JammerModeBruteforce,
-    JammerModeCount
 } JammerMode;
 
 typedef enum {

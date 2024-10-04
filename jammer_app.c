@@ -151,13 +151,13 @@ static int32_t jammer_tx_thread(void* context) {
             break;
         case JammerMode2FSKDev238Async:
         case JammerMode2FSKDev476Async:
-            for(int i = 0; i < sizeof(jam_data); i++) {
+            for(size_t i = 0; i < sizeof(jam_data); i++) {
                 jam_data[i] = (i % 2 == 0) ? 0xAA : 0x55;
             }
             break;
         case JammerModeMSK99_97KbAsync:
         case JammerModeGFSK9_99KbAsync:
-            for(int i = 0; i < sizeof(jam_data); i++) {
+            for(size_t i = 0; i < sizeof(jam_data); i++) {
                 jam_data[i] = rand() % 256;
             }
             break;
@@ -189,7 +189,7 @@ static void jammer_switch_mode(JammerApp* app) {
         subghz_tx_rx_worker_stop(app->subghz_txrx);
     }
 
-    app->jamming_mode = (app->jamming_mode + 1) % JammerModeCount;
+    app->jamming_mode = (app->jamming_mode + 1) % 6;
 
     switch(app->jamming_mode) {
         case JammerModeOok650Async:
