@@ -1,4 +1,15 @@
 #include "jammer_app.h"
+#include <furi_hal_region.h>
+
+static FuriHalRegion unlockedRegion = {
+    .country_code = "FTW",
+    .bands_count = 3,
+    .bands = {
+        {.start = 299999755, .end = 348000000, .power_limit = 12, .duty_cycle = 50},
+        {.start = 386999938, .end = 464000000, .power_limit = 12, .duty_cycle = 50},
+        {.start = 778999847, .end = 928000000, .power_limit = 12, .duty_cycle = 50},
+    },
+};
 
 static const char* jamming_modes[] = {
     "OOK 650kHz",
@@ -283,6 +294,8 @@ JammerApp* jammer_app_alloc(void) {
     app->tx_running = false;
     app->jamming_mode = JammerModeOok650Async;
     app->gui = furi_record_open(RECORD_GUI);
+
+    furi_hal_region_set(&unlockedRegion);
 
     view_port_draw_callback_set(app->view_port, jammer_draw_callback, app);
     view_port_input_callback_set(app->view_port, jammer_input_callback, app);
