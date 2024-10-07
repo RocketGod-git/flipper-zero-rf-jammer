@@ -103,43 +103,23 @@ static void jammer_input_callback(InputEvent* input_event, void* context) {
 
 static void jammer_adjust_frequency(JammerApp* app, bool up) {
     uint32_t frequency = app->frequency;
+    uint32_t step;
 
-    if(app->cursor_position == 3) {
-        return;
+    switch(app->cursor_position) {
+        case 0: step = 100000000; break;
+        case 1: step = 10000000; break;
+        case 2: step = 1000000; break;
+        case 3: step = 100000; break;
+        case 4: step = 10000; break;
+        default: return;
     }
 
-    if(app->cursor_position == 0) {
-        uint8_t valid_hundreds[] = {3, 4, 7, 8, 9};
-        int num_valid = sizeof(valid_hundreds) / sizeof(valid_hundreds[0]);
-        uint8_t current_hundred = frequency / 100000000;
-        int index = -1;
-        for(int i = 0; i < num_valid; i++) {
-            if(valid_hundreds[i] == current_hundred) {
-                index = i;
-                break;
-            }
-        }
-        if(index == -1) {
-            index = up ? 0 : num_valid - 1;
-        } else {
-            index = up ? (index + 1) % num_valid : (index - 1 + num_valid) % num_valid;
-        }
-        uint8_t new_hundred = valid_hundreds[index];
-        frequency = (frequency % 100000000) + new_hundred * 100000000;
-    } else {
-        uint32_t step_sizes[] = {100000000, 10000000, 1000000, 100000, 10000};
-        int step_index = app->cursor_position;
-        if(app->cursor_position > 3) {
-            step_index = app->cursor_position - 1;
-        }
-        uint32_t step = step_sizes[step_index];
-        frequency = up ? frequency + step : frequency - step;
+    frequency = up ? frequency + step : frequency - step;
 
-        if(frequency > SUBGHZ_FREQUENCY_MAX) {
-            frequency = SUBGHZ_FREQUENCY_MIN + (frequency - SUBGHZ_FREQUENCY_MAX - 1);
-        } else if(frequency < SUBGHZ_FREQUENCY_MIN) {
-            frequency = SUBGHZ_FREQUENCY_MAX - (SUBGHZ_FREQUENCY_MIN - frequency - 1);
-        }
+    if(frequency > SUBGHZ_FREQUENCY_MAX) {
+        frequency = SUBGHZ_FREQUENCY_MIN;
+    } else if(frequency < SUBGHZ_FREQUENCY_MIN) {
+        frequency = SUBGHZ_FREQUENCY_MAX;
     }
 
     frequency = adjust_frequency_to_valid(frequency, up);
@@ -364,16 +344,14 @@ int32_t jammer_app(void* p) {
                         app->running = false;
                         break;
                     case InputKeyRight:
-                        if(app->cursor_position < 5) {
+                        if(app->cursor_position < 4) {
                             app->cursor_position++;
-                            if(app->cursor_position == 3) app->cursor_position++;
                             jammer_update_view(app);
                         }
                         break;
                     case InputKeyLeft:
                         if(app->cursor_position > 0) {
                             app->cursor_position--;
-                            if(app->cursor_position == 3) app->cursor_position--;
                             jammer_update_view(app);
                         }
                         break;
