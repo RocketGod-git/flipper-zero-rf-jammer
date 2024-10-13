@@ -2,7 +2,14 @@
 
 This **RF Jammer App** for the Flipper Zero, made by **RocketGod**, is a powerful tool for jamming across multiple radio frequencies and modulation schemes. Below is an in-depth look at each mode, from its technical details to the real-world impact of its jamming strategy.
 
+## 🎥 Internal CC1101 Demonstration
 https://github.com/user-attachments/assets/4a34bc73-d419-480e-bb87-90216eb8a1e0
+## 🎥 External CC1101 Demonstration
+https://github.com/user-attachments/assets/1053ec27-a15f-4313-9257-2360135c5e96
+
+## 📡 External CC1101 Notes
+- **To use an external CC1101, attach it to the GPIO before starting the app.**
+- Tested with [Rabbit Labs - Flux Capacitor amplified external CC1101](https://rabbit-labs.com/product/rabbit-labs-flux-capacitor-amplified-cc1101/)
 
 ## 📡 Frequency Control
 
