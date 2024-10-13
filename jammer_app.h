@@ -1,19 +1,5 @@
 #pragma once
 
-#include <furi.h>
-#include <gui/gui.h>
-#include <subghz/devices/devices.h>
-#include <subghz/devices/preset.h>
-#include <furi/core/log.h>
-#include <furi_hal.h>
-#include <lib/subghz/subghz_tx_rx_worker.h>
-
-#define TAG "JammerApp"
-#define SUBGHZ_DEVICE_NAME "cc1101_int"
-#define SUBGHZ_FREQUENCY_MIN 300000000
-#define SUBGHZ_FREQUENCY_MAX 928000000
-#define MESSAGE_MAX_LEN 256
-
 typedef enum {
     JammerModeOok650Async,
     JammerMode2FSKDev238Async,
