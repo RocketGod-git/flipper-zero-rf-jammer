@@ -27,6 +27,14 @@ typedef enum {
     JammerModeMSK99_97KbAsync,
     JammerModeGFSK9_99KbAsync,
     JammerModeBruteforce,
+    JammerModeSineWave,
+    JammerModeSquareWave,
+    JammerModeSawtoothWave,
+    JammerModeWhiteNoise,
+    JammerModeTriangleWave,
+    JammerModeChirp,
+    JammerModeGaussianNoise,
+    JammerModeBurst,
 } JammerMode;
 
 JammerApp* jammer_app_alloc(void);
