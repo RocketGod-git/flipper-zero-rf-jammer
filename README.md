@@ -74,6 +74,46 @@ Each jamming mode is implemented as a distinct modulation scheme and data patter
 - **Mechanism**: This mode sends a constant, unmodulated signal of `1`s. In the digital domain, `0xFF` means every bit is a `1`, resulting in a strong, uninterrupted carrier wave being transmitted.
 - **Impact**: The **Bruteforce 0xFF** mode creates the most aggressive form of jamming. By transmitting non-stop high bits, it forces constant noise across the frequency, which jams nearly any communication within the affected band. Most RF systems rely on alternating data bits (`1`s and `0`s), so flooding the airwaves with pure `1`s causes receivers to lock up, unable to process real signals.
 
+### 🎶 **Sine Wave**:
+- **Pattern**: Generates a continuous sine wave signal across the frequency.
+- **Mechanism**: Sine waves represent the most basic continuous wave (CW) modulation, commonly used in signal testing.
+- **Impact**: Affects devices using analog modulation schemes, causing them to interpret the signal as a valid, albeit meaningless, transmission, effectively drowning out real signals.
+
+### 🟥 **Square Wave**:
+- **Pattern**: Alternates between high (`0xFF`) and low (`0x00`) states.
+- **Mechanism**: Square waves are simple digital pulses that are straightforward to generate and disruptive across various digital communication schemes.
+- **Impact**: Mimics basic digital signals, likely interfering with devices expecting digital pulse sequences like on-off signaling, potentially causing dropouts or erratic behavior.
+
+### 📈 **Sawtooth Wave**:
+- **Pattern**: A gradually increasing signal followed by a sharp drop, repeated continuously.
+- **Mechanism**: The sawtooth pattern is similar to frequency sweeps used in testing, creating a continuously shifting interference.
+- **Impact**: Effective against frequency-sensitive systems by introducing an unpredictable, ramped noise, often disrupting RF links that lack sufficient error correction.
+
+### 🎲 **White Noise**:
+- **Pattern**: Randomized data across the signal spectrum.
+- **Mechanism**: Emulates white noise, a common form of interference that introduces random amplitude values.
+- **Impact**: White noise can disrupt any frequency-based device, particularly analog devices, making it a universal jamming signal for both digital and analog targets.
+
+### 🔺 **Triangle Wave**:
+- **Pattern**: Oscillates linearly between high and low values in a symmetric pattern.
+- **Mechanism**: The triangular waveform introduces a consistent frequency shift, resembling certain synthetic modulations.
+- **Impact**: Affects devices relying on predictable frequency patterns, making it harder for them to differentiate between legitimate and jammed signals.
+
+### 📡 **Chirp Signal**:
+- **Pattern**: Frequency increases steadily within the waveform, known as a "chirp."
+- **Mechanism**: Common in radar and sonar, chirp signals create a rising frequency pattern over time.
+- **Impact**: Causes RF receivers to detect multiple frequencies simultaneously, often confusing or overloading their demodulators.
+
+### 🎲 **Gaussian Noise**:
+- **Pattern**: Random values with a Gaussian (bell-curve) distribution.
+- **Mechanism**: Gaussian noise introduces random, statistically distributed values that mimic natural noise in RF environments.
+- **Impact**: Particularly effective for jamming digital signals relying on Gaussian-based frequency modulation, as it closely resembles natural interference, making the jamming less detectable.
+
+### 💥 **Burst Mode**:
+- **Pattern**: Periodic bursts of high (`0xFF`) data with pauses in between.
+- **Mechanism**: Sends intense pulses followed by intervals, creating an effect similar to packetized data.
+- **Impact**: Effective against burst-based communication systems by mimicking valid data bursts, which can confuse or overload the receiver's data handling.
+
 ---
 
 ## 💣 Controls
