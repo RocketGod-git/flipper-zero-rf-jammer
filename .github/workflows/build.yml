@@ -24,4 +24,4 @@ jobs:
         with:
           # skip SDK setup, we already did it in previous step
           skip-setup: true
-          task: lint
+          task: build
