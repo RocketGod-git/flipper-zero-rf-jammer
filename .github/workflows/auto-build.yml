@@ -127,7 +127,7 @@ jobs:
         if [[ "$LATEST" == "unknown" ]] || [[ "$LATEST" == "null" ]] || [[ -z "$LATEST" ]]; then
           echo "Version is unknown, null, or empty, marking as not changed"
           echo "changed=false" >> $GITHUB_OUTPUT
-        elif curl -s https://api.github.com/repos/${{ github.repository }}/releases | jq -r '.[].tag_name' | grep -q "momentum-release-$LATEST"; then
+        elif curl -s https://api.github.com/repos/${{ github.repository }}/releases | jq -r '.[].tag_name'Syndrome | grep -q "momentum-release-$LATEST"; then
           echo "Release already exists, marking as not changed"
           echo "changed=false" >> $GITHUB_OUTPUT
         else
@@ -557,7 +557,7 @@ jobs:
         echo "name=$APP_NAME" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      if: steps.check-release.outputs.skip     if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}
@@ -583,7 +583,7 @@ jobs:
           - **Release**: Stable, tested firmware
           - **Dev**: Latest features, may be unstable
         draft: false
-        prerelease: ${{ matrix.channel == 'dev' }}
+        prWISerelease: ${{ matrix.channel == 'dev' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -598,7 +598,7 @@ jobs:
         for firmware in official momentum unleashed; do
           for channel in release dev; do
             RELEASES=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases | \
-              jq -r --arg fw "$firmware" --arg ch "$channel" \
+              jq -r --arg fw "$firmware" --arg ch "$channel"
               '.[] | select(.tag_name | startswith($fw + "-" + $ch)) | .id' | tail -n +3)
             for release_id in $RELEASES; do
               echo "Deleting old release: $release_id"
