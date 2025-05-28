@@ -48,6 +48,8 @@ jobs:
         }
         echo "ufbt status:"
         ufbt status
+        echo "ufbt build directory:"
+        ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "Build directory not found"
 
     - name: Pre-build validation
       run: |
@@ -130,17 +132,31 @@ jobs:
           ls -la
           echo "dist directory contents:"
           ls -la dist/ 2>/dev/null || echo "dist directory is empty"
+          echo "ufbt build directory contents:"
+          ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "ufbt build directory is empty"
           echo "application.fam contents:"
           cat application.fam 2>/dev/null || echo "No application.fam found"
           exit 1
         fi
         
-        # Check if a .fap file was generated
+        # Check ufbt build directory for FAP file
+        echo "Checking ufbt build directory for FAP file..."
+        FAP_FILE_UFBT=$(find /home/runner/.ufbt/build/ -name "*.fap" | head -1)
+        if [ -n "$FAP_FILE_UFBT" ]; then
+          echo "FAP file found in ufbt build directory: $FAP_FILE_UFBT"
+          mkdir -p dist
+          cp "$FAP_FILE_UFBT" dist/jammer_app.fap
+          echo "Copied FAP file to dist/jammer_app.fap"
+        fi
+        
+        # Check dist directory for FAP file
         FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
         if [ -z "$FAP_FILE" ]; then
-          echo "::error::No .fap file generated for ${{ matrix.channel }} channel"
+          echo "::error::No .fap file generated in dist/ for ${{ matrix.channel }} channel"
           echo "dist directory contents:"
           ls -la dist/ 2>/dev/null || echo "dist directory is empty"
+          echo "ufbt build directory contents:"
+          ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "ufbt build directory is empty"
           exit 1
         fi
 
@@ -155,7 +171,7 @@ jobs:
       run: |
         FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
         if [ -z "$FAP_FILE" ]; then
-          echo "::error::No FAP file found for ${{ matrix.channel }} channel"
+          echo "::error::No FAP file found in dist/ for ${{ matrix.channel }} channel"
           exit 1
         fi
         
