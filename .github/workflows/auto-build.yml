@@ -39,10 +39,10 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install ufbt
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ufbt
+        pip install ufbt requests beautifulsoup4
 
     - name: Check Official Release Channel
       id: check-official-release
@@ -51,9 +51,18 @@ jobs:
         ufbt update --channel=release || echo "ufbt update failed"
         
         echo "Getting ufbt status..."
-        ufbt status || echo "ufbt status failed"
+        STATUS_OUTPUT=$(ufbt status 2>&1 || echo "")
+        echo "Status output: $STATUS_OUTPUT"
         
-        LATEST=$(ufbt status | grep -E "Firmware origin:|Target:" | head -1 | sed 's/.*: *//' | cut -d' ' -f1 || echo "unknown")
+        # Try multiple patterns to extract version
+        LATEST=$(echo "$STATUS_OUTPUT" | grep -oP 'Target:.*\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+        if [ -z "$LATEST" ]; then
+          LATEST=$(echo "$STATUS_OUTPUT" | grep -oP 'Version:.*\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+        fi
+        if [ -z "$LATEST" ]; then
+          LATEST=$(echo "$STATUS_OUTPUT" | grep -oP '\b[0-9]+\.[0-9]+\.[0-9]+\b' | head -1 || echo "unknown")
+        fi
+        
         echo "Extracted version: $LATEST"
         echo "latest=$LATEST" >> $GITHUB_OUTPUT
         
@@ -75,9 +84,18 @@ jobs:
         ufbt update --channel=dev || echo "ufbt update failed"
         
         echo "Getting ufbt status..."
-        ufbt status || echo "ufbt status failed"
+        STATUS_OUTPUT=$(ufbt status 2>&1 || echo "")
+        echo "Status output: $STATUS_OUTPUT"
         
-        LATEST=$(ufbt status | grep -E "Firmware origin:|Target:" | head -1 | sed 's/.*: *//' | cut -d' ' -f1 || echo "unknown")
+        # Try multiple patterns to extract version
+        LATEST=$(echo "$STATUS_OUTPUT" | grep -oP 'Target:.*\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+        if [ -z "$LATEST" ]; then
+          LATEST=$(echo "$STATUS_OUTPUT" | grep -oP 'Version:.*\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+        fi
+        if [ -z "$LATEST" ]; then
+          LATEST=$(echo "$STATUS_OUTPUT" | grep -oP '\b[0-9]+\.[0-9]+\.[0-9]+\b' | head -1 || echo "unknown")
+        fi
+        
         echo "Extracted version: $LATEST"
         echo "latest=$LATEST" >> $GITHUB_OUTPUT
         
@@ -101,6 +119,7 @@ jobs:
         RESPONSE=$(curl -s https://api.github.com/repos/Next-Flip/Momentum-Firmware/releases)
         echo "API Response (first 500 chars): ${RESPONSE:0:500}"
         
+        # Get the latest non-prerelease version
         LATEST=$(echo "$RESPONSE" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "unknown"')
         echo "Extracted version: $LATEST"
         echo "latest=$LATEST" >> $GITHUB_OUTPUT
@@ -120,17 +139,24 @@ jobs:
       id: check-momentum-dev
       run: |
         echo "Checking Momentum Dev Channel..."
-        echo "Fetching releases from Next-Flip/Momentum-Firmware..."
+        # Momentum dev builds use GitHub Actions artifacts
+        # Get the latest successful build from the dev branch
         
-        RESPONSE=$(curl -s https://api.github.com/repos/Next-Flip/Momentum-Firmware/releases)
-        echo "Looking for prerelease versions..."
+        WORKFLOW_RUNS=$(curl -s "https://api.github.com/repos/Next-Flip/Momentum-Firmware/actions/runs?branch=dev&status=success&per_page=10")
+        echo "Checking workflow runs..."
         
-        LATEST=$(echo "$RESPONSE" | jq -r '[.[] | select(.prerelease == true)][0].tag_name // "unknown"')
+        # Get the latest commit hash from successful builds
+        LATEST=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs[0].head_sha // "unknown"' | cut -c1-8)
+        
+        if [[ "$LATEST" != "unknown" ]]; then
+          LATEST="mntm-dev-$LATEST"
+        fi
+        
         echo "Extracted version: $LATEST"
         echo "latest=$LATEST" >> $GITHUB_OUTPUT
         
-        if [[ "$LATEST" == "unknown" ]] || [[ "$LATEST" == "null" ]] || [[ -z "$LATEST" ]]; then
-          echo "Version is unknown, null, or empty, marking as not changed"
+        if [[ "$LATEST" == "unknown" ]] || [[ "$LATEST" == "mntm-dev-unknown" ]] || [[ -z "$LATEST" ]]; then
+          echo "Version is unknown or empty, marking as not changed"
           echo "changed=false" >> $GITHUB_OUTPUT
         elif curl -s https://api.github.com/repos/${{ github.repository }}/releases | jq -r '.[].tag_name' | grep -q "momentum-dev-$LATEST"; then
           echo "Release already exists, marking as not changed"
@@ -149,6 +175,7 @@ jobs:
         RESPONSE=$(curl -s https://api.github.com/repos/DarkFlippers/unleashed-firmware/releases)
         echo "API Response (first 500 chars): ${RESPONSE:0:500}"
         
+        # Get the latest non-prerelease version
         LATEST=$(echo "$RESPONSE" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "unknown"')
         echo "Extracted version: $LATEST"
         echo "latest=$LATEST" >> $GITHUB_OUTPUT
@@ -168,25 +195,47 @@ jobs:
       id: check-unleashed-dev
       run: |
         echo "Checking Unleashed Dev Channel..."
-        echo "Fetching releases from DarkFlippers/unleashed-firmware..."
+        # Unleashed dev builds are hosted on dev.unleashedflip.com
+        # Scrape the page to get the latest build number
         
-        RESPONSE=$(curl -s https://api.github.com/repos/DarkFlippers/unleashed-firmware/releases)
-        echo "Looking for prerelease versions..."
+        python3 << 'EOF'
+        import requests
+        import re
+        import os
         
-        LATEST=$(echo "$RESPONSE" | jq -r '[.[] | select(.prerelease == true)][0].tag_name // "unknown"')
-        echo "Extracted version: $LATEST"
-        echo "latest=$LATEST" >> $GITHUB_OUTPUT
+        try:
+            response = requests.get('https://dev.unleashedflip.com/', timeout=10)
+            # Look for "Build - 1156" pattern
+            match = re.search(r'Build - (\d+)', response.text)
+            if match:
+                build_num = match.group(1)
+                version = f"build-{build_num}"
+            else:
+                version = "unknown"
+        except Exception as e:
+            print(f"Error fetching dev builds: {e}")
+            version = "unknown"
         
-        if [[ "$LATEST" == "unknown" ]] || [[ "$LATEST" == "null" ]] || [[ -z "$LATEST" ]]; then
-          echo "Version is unknown, null, or empty, marking as not changed"
-          echo "changed=false" >> $GITHUB_OUTPUT
-        elif curl -s https://api.github.com/repos/${{ github.repository }}/releases | jq -r '.[].tag_name' | grep -q "unleashed-dev-$LATEST"; then
-          echo "Release already exists, marking as not changed"
-          echo "changed=false" >> $GITHUB_OUTPUT
-        else
-          echo "New version detected, marking as changed"
-          echo "changed=true" >> $GITHUB_OUTPUT
-        fi
+        print(f"Extracted version: {version}")
+        
+        # Write to GitHub output
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"latest={version}\n")
+        
+        # Check if this version already exists
+        try:
+            releases = requests.get(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/releases").json()
+            tag_names = [r.get('tag_name', '') for r in releases if isinstance(r, dict)]
+            if f"unleashed-dev-{version}" in tag_names:
+                changed = "false"
+            else:
+                changed = "true" if version != "unknown" else "false"
+        except:
+            changed = "false"
+        
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f"changed={changed}\n")
+        EOF
 
     - name: Determine if build is needed
       id: determine-build
@@ -218,7 +267,7 @@ jobs:
     if: needs.check-firmware-updates.outputs.should-build == 'true'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # This is crucial - prevents matrix from canceling other jobs
+      fail-fast: false  # Prevents one failing job from canceling others
       matrix:
         include:
           # Official Firmware
@@ -243,7 +292,7 @@ jobs:
             ufbt_channel: dev
             version: ${{ needs.check-firmware-updates.outputs.momentum-dev-latest }}
             changed: ${{ needs.check-firmware-updates.outputs.momentum-dev-changed }}
-          # Unleashed Firmware  
+          # Unleashed Firmware
           - firmware: unleashed
             channel: release
             ufbt_channel: release
@@ -284,12 +333,13 @@ jobs:
           echo "skip_reason=none" >> $GITHUB_OUTPUT
         fi
 
-    - name: Skip if no changes or invalid version
+    - name: Exit early if skipping
       if: steps.check-build.outputs.skip == 'true'
       run: |
         echo "Skipping ${{ matrix.firmware }} ${{ matrix.channel }}"
         echo "Reason: ${{ steps.check-build.outputs.skip_reason }}"
         echo "Version: ${{ matrix.version }}"
+        echo "::notice::Skipping ${{ matrix.firmware }} ${{ matrix.channel }} - ${{ steps.check-build.outputs.skip_reason }}"
         exit 0
 
     - name: Checkout code
@@ -316,20 +366,244 @@ jobs:
         echo "ufbt status:"
         ufbt status
 
-    - name: Setup ufbt for Momentum firmware
-      if: matrix.firmware == 'momentum' && steps.check-build.outputs.skip != 'true'
+    - name: Setup ufbt for Momentum release firmware
+      if: matrix.firmware == 'momentum' && matrix.channel == 'release' && steps.check-build.outputs.skip != 'true'
       run: |
-        echo "Setting up ufbt for Momentum firmware..."
+        echo "Setting up ufbt for Momentum release firmware..."
+        # Momentum uses their custom index
         ufbt update --channel=${{ matrix.ufbt_channel }} --index-url=https://up.momentum-fw.dev/directory.json
         echo "ufbt status:"
         ufbt status
 
-    - name: Setup ufbt for Unleashed firmware
-      if: matrix.firmware == 'unleashed' && steps.check-build.outputs.skip != 'true'
+    - name: Setup ufbt for Momentum dev firmware
+      if: matrix.firmware == 'momentum' && matrix.channel == 'dev' && steps.check-build.outputs.skip != 'true'
       run: |
-        echo "Setting up ufbt for Unleashed firmware..."
+        echo "Setting up ufbt for Momentum dev firmware..."
+        # For dev builds, we need to use a specific commit
+        # This is a workaround - ideally ufbt would support this directly
+        ufbt update --channel=release --index-url=https://up.momentum-fw.dev/directory.json
+        echo "Using latest release SDK for dev build compatibility"
+        ufbt status
+
+    - name: Setup ufbt for Unleashed release firmware
+      if: matrix.firmware == 'unleashed' && matrix.channel == 'release' && steps.check-build.outputs.skip != 'true'
+      run: |
+        echo "Setting up ufbt for Unleashed release firmware..."
+        # Unleashed uses their custom index
         ufbt update --channel=${{ matrix.ufbt_channel }} --index-url=https://up.unleashedflip.com/directory.json
         echo "ufbt status:"
         ufbt status
 
-    # Rest of the build steps remain the same...
+    - name: Setup ufbt for Unleashed dev firmware
+      if: matrix.firmware == 'unleashed' && matrix.channel == 'dev' && steps.check-build.outputs.skip != 'true'
+      run: |
+        echo "Setting up ufbt for Unleashed dev firmware..."
+        # For dev builds, we need to use the latest release SDK
+        ufbt update --channel=release --index-url=https://up.unleashedflip.com/directory.json
+        echo "Using latest release SDK for dev build compatibility"
+        ufbt status
+
+    - name: Get app name from source
+      if: steps.check-build.outputs.skip != 'true'
+      id: app-info
+      run: |
+        # Try to extract app name from common patterns
+        if [ -f "application.fam" ]; then
+          APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
+        elif ls *.c 2>/dev/null; then
+          # Look for app name in C files
+          APP_NAME=$(grep -r "\.name.*=" *.c | sed 's/.*\.name.*=.*"\([^"]*\)".*/\1/' | head -1)
+        fi
+        
+        # Fallback to directory name
+        if [ -z "$APP_NAME" ]; then
+          APP_NAME=$(basename $(pwd))
+        fi
+        
+        # Clean up name for filename
+        APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+        echo "name=$APP_NAME" >> $GITHUB_OUTPUT
+        echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
+
+    - name: Build FAP
+      if: steps.check-build.outputs.skip != 'true'
+      run: |
+        echo "Building FAP for ${{ matrix.firmware }} ${{ matrix.channel }}..."
+        ufbt build || {
+          echo "::warning::Build failed for ${{ matrix.firmware }} ${{ matrix.channel }}"
+          exit 1
+        }
+
+    - name: Find and rename FAP
+      if: steps.check-build.outputs.skip != 'true'
+      id: fap-info
+      run: |
+        FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
+        if [ -z "$FAP_FILE" ]; then
+          echo "No FAP file found!"
+          exit 1
+        fi
+        
+        NEW_NAME="${{ steps.app-info.outputs.clean_name }}-${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}.fap"
+        cp "$FAP_FILE" "$NEW_NAME"
+        echo "filename=$NEW_NAME" >> $GITHUB_OUTPUT
+
+    - name: Upload artifact
+      if: steps.check-build.outputs.skip != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}
+        path: ${{ steps.fap-info.outputs.filename }}
+
+  create-releases:
+    needs: [check-firmware-updates, build]
+    if: always() && needs.check-firmware-updates.outputs.should-build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Official Firmware
+          - firmware: official
+            channel: release
+            version: ${{ needs.check-firmware-updates.outputs.official-release-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.official-release-changed }}
+          - firmware: official
+            channel: dev
+            version: ${{ needs.check-firmware-updates.outputs.official-dev-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.official-dev-changed }}
+          # Momentum Firmware
+          - firmware: momentum  
+            channel: release
+            version: ${{ needs.check-firmware-updates.outputs.momentum-release-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.momentum-release-changed }}
+          - firmware: momentum
+            channel: dev
+            version: ${{ needs.check-firmware-updates.outputs.momentum-dev-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.momentum-dev-changed }}
+          # Unleashed Firmware  
+          - firmware: unleashed
+            channel: release
+            version: ${{ needs.check-firmware-updates.outputs.unleashed-release-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.unleashed-release-changed }}
+          - firmware: unleashed
+            channel: dev
+            version: ${{ needs.check-firmware-updates.outputs.unleashed-dev-latest }}
+            changed: ${{ needs.check-firmware-updates.outputs.unleashed-dev-changed }}
+
+    steps:
+    - name: Check if release is needed
+      id: check-release
+      run: |
+        if [[ "${{ matrix.changed }}" == "false" ]] && [[ "${{ github.event.inputs.force_build }}" != "true" ]]; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+        elif [[ "${{ matrix.version }}" == "null" ]] || [[ "${{ matrix.version }}" == "unknown" ]] || [[ -z "${{ matrix.version }}" ]]; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Exit early if skipping
+      if: steps.check-release.outputs.skip == 'true'
+      run: |
+        echo "Skipping release for ${{ matrix.firmware }} ${{ matrix.channel }} - no new version or invalid version"
+        exit 0
+
+    - name: Check if artifact exists
+      if: steps.check-release.outputs.skip != 'true'
+      id: check-artifact
+      uses: actions/github-script@v7
+      with:
+        script: |
+          try {
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+            const artifactName = '${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}';
+            const exists = artifacts.data.artifacts.some(a => a.name === artifactName);
+            core.setOutput('exists', exists);
+          } catch (error) {
+            core.setOutput('exists', false);
+          }
+
+    - name: Skip if no artifact
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists != 'true'
+      run: |
+        echo "No artifact found for ${{ matrix.firmware }} ${{ matrix.channel }} ${{ matrix.version }}, skipping release"
+        exit 0
+
+    - name: Checkout code
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      uses: actions/checkout@v4
+
+    - name: Download artifact
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}
+        path: ./release-files
+
+    - name: Get app info
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      id: app-info
+      run: |
+        if [ -f "application.fam" ]; then
+          APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
+        else
+          APP_NAME=$(basename $(pwd))
+        fi
+        echo "name=$APP_NAME" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}
+        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.firmware }} ${{ matrix.channel }} ${{ matrix.version }}
+        files: ./release-files/*.fap
+        body: |
+          ## ${{ steps.app-info.outputs.name }} 
+          
+          **Built for:** ${{ matrix.firmware }} firmware ${{ matrix.channel }} channel ${{ matrix.version }}
+          
+          This FAP was automatically built when ${{ matrix.firmware }} firmware ${{ matrix.channel }} ${{ matrix.version }} was detected.
+          
+          **Installation:**
+          1. Download the .fap file
+          2. Copy to your Flipper Zero's `apps` folder
+          3. The app will appear in your applications menu
+          
+          **Firmware Compatibility:**
+          - ✅ ${{ matrix.firmware }} ${{ matrix.channel }} ${{ matrix.version }}
+          - ❌ Other firmware versions/channels (use the appropriate release)
+          
+          **Channel Info:**
+          - **Release**: Stable, tested firmware
+          - **Dev**: Latest features, may be unstable
+        draft: false
+        prerelease: ${{ matrix.channel == 'dev' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup-old-releases:
+    needs: [check-firmware-updates, create-releases]
+    if: always() && needs.check-firmware-updates.outputs.should-build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Cleanup old releases
+      run: |
+        # Keep only the latest 2 releases per firmware/channel combo
+        for firmware in official momentum unleashed; do
+          for channel in release dev; do
+            RELEASES=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases | \
+              jq -r --arg fw "$firmware" --arg ch "$channel" \
+              '.[] | select(.tag_name | startswith($fw + "-" + $ch)) | .id' | tail -n +3)
+            for release_id in $RELEASES; do
+             echo "Deleting old release: $release_id"
+             curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+           done
+         done
+       done
