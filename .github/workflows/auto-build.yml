@@ -47,7 +47,7 @@ jobs:
           exit 1
         }
         echo "ufbt status:"
-        ufbt status --verbose || ufbt status
+        ufbt status
 
     - name: Pre-build validation
       run: |
@@ -57,21 +57,37 @@ jobs:
           echo "application.fam found:"
           cat application.fam
         else
-          echo "::warning::No application.fam found in $(pwd)"
+          echo "::error::No application.fam found in $(pwd)"
+          exit 1
         fi
         
         echo "Listing source files (*.c, *.h)..."
-        ls -la *.c *.h 2>/dev/null || echo "No .c or .h files found"
+        ls -la *.c *.h 2>/dev/null || echo "::warning::No .c or .h files found"
+        
+        echo "Checking assets directory..."
+        if [ -d "assets" ]; then
+          echo "assets directory found:"
+          ls -la assets/
+        else
+          echo "::warning::No assets directory found"
+        fi
+        
+        echo "Checking icons directory..."
+        if [ -d "icons" ]; then
+          echo "icons directory found:"
+          ls -la icons/
+          if [ -f "icons/jammer_icon.png" ]; then
+            echo "jammer_icon.png found"
+          else
+            echo "::warning::jammer_icon.png not found in icons/"
+          fi
+        else
+          echo "::warning::No icons directory found"
+        fi
         
         echo "Checking dist directory..."
         mkdir -p dist
         ls -la dist/ 2>/dev/null || echo "dist directory is empty"
-        
-        echo "SDK configuration:"
-        ufbt sdk || {
-          echo "::error::Failed to display SDK configuration"
-          exit 1
-        }
 
     - name: Get app name from source
       id: app-info
@@ -109,7 +125,7 @@ jobs:
           echo "Build log contents:"
           cat "$BUILD_LOG"
           echo "ufbt status:"
-          ufbt status --verbose || ufbt status
+          ufbt status
           echo "Directory contents:"
           ls -la
           echo "dist directory contents:"
