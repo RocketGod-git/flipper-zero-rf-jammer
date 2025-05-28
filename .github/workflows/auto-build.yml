@@ -21,6 +21,8 @@ jobs:
         channel:
           - release
           - dev
+    outputs:
+      timestamp: ${{ steps.timestamp.outputs.timestamp }}
 
     steps:
     - name: Checkout code
@@ -34,7 +36,7 @@ jobs:
     - name: Install ufbt
       run: |
         python -m pip install --upgrade pip
-        pip install ufbt
+        pip install --upgrade ufbt
         ufbt --version
         python --version
         echo "Working directory: $(pwd)"
@@ -51,6 +53,17 @@ jobs:
         echo "ufbt build directory:"
         ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "Build directory not found"
 
+    - name: Update application.fam to remove fap_icon_assets
+      run: |
+        if [ -f "application.fam" ]; then
+          sed -i '/fap_icon_assets="assets"/d' application.fam
+          echo "Updated application.fam:"
+          cat application.fam
+        else
+          echo "::error::No application.fam found"
+          exit 1
+        fi
+
     - name: Pre-build validation
       run: |
         echo "Validating build environment for ${{ matrix.channel }} channel..."
@@ -65,14 +78,6 @@ jobs:
         
         echo "Listing source files (*.c, *.h)..."
         ls -la *.c *.h 2>/dev/null || echo "::warning::No .c or .h files found"
-        
-        echo "Checking assets directory..."
-        if [ -d "assets" ]; then
-          echo "assets directory found:"
-          ls -la assets/
-        else
-          echo "::warning::No assets directory found"
-        fi
         
         echo "Checking icons directory..."
         if [ -d "icons" ]; then
@@ -112,6 +117,12 @@ jobs:
         echo "name=$APP_NAME" >> $GITHUB_OUTPUT
         echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
         echo "App name: $APP_NAME"
+
+    - name: Get current timestamp
+      id: timestamp
+      run: |
+        TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
     - name: Build FAP
       run: |
@@ -160,12 +171,6 @@ jobs:
           exit 1
         fi
 
-    - name: Get current timestamp
-      id: timestamp
-      run: |
-        TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-
     - name: Find and rename FAP
       id: fap-info
       run: |
@@ -199,16 +204,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Get current timestamp
-      id: timestamp
-      run: |
-        TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-
     - name: Download artifact
       uses: actions/download-artifact@v4
       with:
-        name: ${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}
+        name: ${{ matrix.channel }}-${{ needs.build.outputs.timestamp }}
         path: ./release-files
 
     - name: Get app info
@@ -224,15 +223,15 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}
-        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.channel }} (${{ steps.timestamp.outputs.timestamp }})
+        tag_name: ${{ matrix.channel }}-${{ needs.build.outputs.timestamp }}
+        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.channel }} (${{ needs.build.outputs.timestamp }})
         files: ./release-files/*.fap
         body: |
           ## ${{ steps.app-info.outputs.name }}
           
           **Built for:** ${{ matrix.channel }} channel (compatible with official, momentum, unleashed firmwares)
           
-          This FAP was automatically built on ${{ steps.timestamp.outputs.timestamp }}.
+          This FAP was automatically built on ${{ needs.build.outputs.timestamp }}.
           
           **Installation:**
           1. Download the .fap file
