@@ -12,17 +12,18 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # Prevents one failing job from canceling others
+      fail-fast: false
       matrix:
         channel:
           - release
           - dev
-    outputs:
-      timestamp: ${{ steps.timestamp.outputs.timestamp }}
 
     steps:
     - name: Checkout code
@@ -99,20 +100,16 @@ jobs:
     - name: Get app name from source
       id: app-info
       run: |
-        # Try to extract app name from common patterns
         if [ -f "application.fam" ]; then
           APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
         elif ls *.c 2>/dev/null; then
-          # Look for app name in C files
           APP_NAME=$(grep -r "\.name.*=" *.c | sed 's/.*\.name.*=.*"\([^"]*\)".*/\1/' | head -1)
         fi
         
-        # Fallback to directory name
         if [ -z "$APP_NAME" ]; then
           APP_NAME=$(basename "$(pwd)")
         fi
         
-        # Clean up name for filename
         APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
         echo "name=$APP_NAME" >> $GITHUB_OUTPUT
         echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
@@ -123,11 +120,12 @@ jobs:
       run: |
         TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
         echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+        echo $TIMESTAMP > timestamp.txt
+        echo "Generated timestamp: $TIMESTAMP"
 
     - name: Build FAP
       run: |
         echo "Building FAP for ${{ matrix.channel }} channel..."
-        # Run ufbt build and capture output to a log file
         mkdir -p build_logs
         BUILD_LOG="build_logs/ufbt_build_${{ matrix.channel }}.log"
         ufbt build 2>&1 | tee "$BUILD_LOG"
@@ -150,7 +148,6 @@ jobs:
           exit 1
         fi
         
-        # Check ufbt build directory for FAP file
         echo "Checking ufbt build directory for FAP file..."
         FAP_FILE_UFBT=$(find /home/runner/.ufbt/build/ -name "*.fap" | head -1)
         if [ -n "$FAP_FILE_UFBT" ]; then
@@ -160,7 +157,6 @@ jobs:
           echo "Copied FAP file to dist/jammer_app.fap"
         fi
         
-        # Check dist directory for FAP file
         FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
         if [ -z "$FAP_FILE" ]; then
           echo "::error::No .fap file generated in dist/ for ${{ matrix.channel }} channel"
@@ -183,12 +179,15 @@ jobs:
         NEW_NAME="${{ steps.app-info.outputs.clean_name }}-${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}.fap"
         cp "$FAP_FILE" "$NEW_NAME"
         echo "filename=$NEW_NAME" >> $GITHUB_OUTPUT
+        echo "Renamed FAP file to: $NEW_NAME"
 
-    - name: Upload artifact
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}
-        path: ${{ steps.fap-info.outputs.filename }}
+        name: ${{ matrix.channel }}-artifacts
+        path: |
+          ${{ steps.fap-info.outputs.filename }}
+          timestamp.txt
 
   create-releases:
     needs: build
@@ -201,14 +200,29 @@ jobs:
           - dev
 
     steps:
+    - name: Enable debug logging
+      run: echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
+
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download artifact
+    - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
-        name: ${{ matrix.channel }}-${{ needs.build.outputs.timestamp }}
+        name: ${{ matrix.channel }}-artifacts
         path: ./release-files
+
+    - name: Get timestamp
+      id: timestamp
+      run: |
+        if [ -f "./release-files/timestamp.txt" ]; then
+          TIMESTAMP=$(cat ./release-files/timestamp.txt)
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "Retrieved timestamp: $TIMESTAMP"
+        else
+          echo "::error::Timestamp file not found"
+          exit 1
+        fi
 
     - name: Get app info
       id: app-info
@@ -223,15 +237,15 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ matrix.channel }}-${{ needs.build.outputs.timestamp }}
-        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.channel }} (${{ needs.build.outputs.timestamp }})
+        tag_name: ${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}
+        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.channel }} (${{ steps.timestamp.outputs.timestamp }})
         files: ./release-files/*.fap
         body: |
           ## ${{ steps.app-info.outputs.name }}
           
           **Built for:** ${{ matrix.channel }} channel (compatible with official, momentum, unleashed firmwares)
           
-          This FAP was automatically built on ${{ needs.build.outputs.timestamp }}.
+          This FAP was automatically built on ${{ steps.timestamp.outputs.timestamp }}.
           
           **Installation:**
           1. Download the .fap file
@@ -256,15 +270,12 @@ jobs:
     steps:
     - name: Cleanup releases older than 10 weeks
       run: |
-        # Calculate the cutoff date (70 days ago)
         CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
         echo "Cutoff timestamp: $CUTOFF_DATE"
         
-        # Fetch all releases
         RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           https://api.github.com/repos/${{ github.repository }}/releases)
         
-        # Filter releases older than 70 days
         OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
           '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
         
