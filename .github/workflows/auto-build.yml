@@ -557,7 +557,7 @@ jobs:
         echo "name=$APP_NAME" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
+      if: steps.check-release.outputs.skip     if: steps.check-release.outputs.skip != 'true' && steps.check-artifact.outputs.exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ matrix.firmware }}-${{ matrix.channel }}-${{ matrix.version }}
@@ -601,9 +601,9 @@ jobs:
               jq -r --arg fw "$firmware" --arg ch "$channel" \
               '.[] | select(.tag_name | startswith($fw + "-" + $ch)) | .id' | tail -n +3)
             for release_id in $RELEASES; do
-             echo "Deleting old release: $release_id"
-             curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
-           done
-         done
-       done
+              echo "Deleting old release: $release_id"
+              curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+            done
+          done
+        done
