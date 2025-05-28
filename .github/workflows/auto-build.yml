@@ -36,6 +36,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install ufbt
         ufbt --version
+        python --version
+        echo "Working directory: $(pwd)"
 
     - name: Setup ufbt
       run: |
@@ -45,7 +47,31 @@ jobs:
           exit 1
         }
         echo "ufbt status:"
-        ufbt status
+        ufbt status --verbose || ufbt status
+
+    - name: Pre-build validation
+      run: |
+        echo "Validating build environment for ${{ matrix.channel }} channel..."
+        echo "Checking for application.fam..."
+        if [ -f "application.fam" ]; then
+          echo "application.fam found:"
+          cat application.fam
+        else
+          echo "::warning::No application.fam found in $(pwd)"
+        fi
+        
+        echo "Listing source files (*.c, *.h)..."
+        ls -la *.c *.h 2>/dev/null || echo "No .c or .h files found"
+        
+        echo "Checking dist directory..."
+        mkdir -p dist
+        ls -la dist/ 2>/dev/null || echo "dist directory is empty"
+        
+        echo "SDK configuration:"
+        ufbt sdk || {
+          echo "::error::Failed to display SDK configuration"
+          exit 1
+        }
 
     - name: Get app name from source
       id: app-info
@@ -67,17 +93,40 @@ jobs:
         APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
         echo "name=$APP_NAME" >> $GITHUB_OUTPUT
         echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
+        echo "App name: $APP_NAME"
 
     - name: Build FAP
       run: |
         echo "Building FAP for ${{ matrix.channel }} channel..."
-        ufbt build || {
-          echo "::error::Build failed for ${{ matrix.channel }} channel"
-          ufbt status
+        # Run ufbt build and capture output to a log file
+        mkdir -p build_logs
+        BUILD_LOG="build_logs/ufbt_build_${{ matrix.channel }}.log"
+        ufbt build 2>&1 | tee "$BUILD_LOG"
+        BUILD_EXIT_CODE=${PIPESTATUS[0]}
+        
+        if [ $BUILD_EXIT_CODE -ne 0 ]; then
+          echo "::error::ufbt build failed for ${{ matrix.channel }} channel (exit code $BUILD_EXIT_CODE)"
+          echo "Build log contents:"
+          cat "$BUILD_LOG"
+          echo "ufbt status:"
+          ufbt status --verbose || ufbt status
+          echo "Directory contents:"
           ls -la
+          echo "dist directory contents:"
+          ls -la dist/ 2>/dev/null || echo "dist directory is empty"
+          echo "application.fam contents:"
           cat application.fam 2>/dev/null || echo "No application.fam found"
           exit 1
-        }
+        fi
+        
+        # Check if a .fap file was generated
+        FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
+        if [ -z "$FAP_FILE" ]; then
+          echo "::error::No .fap file generated for ${{ matrix.channel }} channel"
+          echo "dist directory contents:"
+          ls -la dist/ 2>/dev/null || echo "dist directory is empty"
+          exit 1
+        fi
 
     - name: Get current timestamp
       id: timestamp
