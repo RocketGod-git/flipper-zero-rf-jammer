@@ -127,4 +127,5 @@ Each jamming mode is implemented as a distinct modulation scheme and data patter
 
 **Disclaimer**: This app is intended for educational and research purposes by experienced RF users. Ensure compliance with local regulations before using this tool.
 
-![rocketgod_logo](https://github.com/RocketGod-git/shodanbot/assets/57732082/7929b554-0fba-4c2b-b22d-6772d23c4a18)
+<img width="1500" height="1000" alt="rocketgod_logo_transparent" src="https://github.com/user-attachments/assets/ad15b106-152c-4a60-a9e2-4d40dfa8f3c6" />
+
