@@ -1,8 +1,8 @@
-name: Weekly Auto Build FAP
+name: Daily Auto Build FAP
 
 on:
   schedule:
-    - cron: "0 12 * * 0"
+    - cron: "0 12 * * *" 
   workflow_dispatch:
     inputs:
       force_build:
