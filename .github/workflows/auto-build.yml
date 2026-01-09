@@ -1,13 +1,12 @@
-name: Weekly Auto Build FAP for Release and Dev Channels
+name: Weekly Auto Build FAP
 
 on:
   schedule:
-    # Run every Sunday at 12:00 UTC
     - cron: '0 12 * * 0'
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build for release and dev channels'
+        description: 'Force build'
         required: false
         default: false
         type: boolean
@@ -21,266 +20,111 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        channel:
-          - release
-          - dev
+        include:
+          - name: Official Release
+            sdk-channel: release
+            sdk-index-url: ""
+            release-tag: official-release
+          - name: Official Dev
+            sdk-channel: dev
+            sdk-index-url: ""
+            release-tag: official-dev
+          - name: Unleashed Release
+            sdk-channel: release
+            sdk-index-url: https://up.unleashedflip.com/directory.json
+            release-tag: unleashed-release
+          - name: Unleashed Dev
+            sdk-channel: dev
+            sdk-index-url: https://up.unleashedflip.com/directory.json
+            release-tag: unleashed-dev
+          - name: Momentum Release
+            sdk-channel: release
+            sdk-index-url: https://up.momentum-fw.dev/firmware/directory.json
+            release-tag: momentum-release
+          - name: Momentum Dev
+            sdk-channel: dev
+            sdk-index-url: https://up.momentum-fw.dev/firmware/directory.json
+            release-tag: momentum-dev
 
+    name: 'Build for ${{ matrix.name }}'
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-
-    - name: Install ufbt
-      run: |
-        python -m pip install --upgrade pip
-        pip install --upgrade ufbt
-        ufbt --version
-        python --version
-        echo "Working directory: $(pwd)"
-
-    - name: Setup ufbt
-      run: |
-        echo "Setting up ufbt for ${{ matrix.channel }} channel..."
-        ufbt update --channel ${{ matrix.channel }} || {
-          echo "::error::ufbt update failed for ${{ matrix.channel }} channel"
-          exit 1
-        }
-        echo "ufbt status:"
-        ufbt status
-        echo "ufbt build directory:"
-        ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "Build directory not found"
-
-    - name: Update application.fam to remove fap_icon_assets
-      run: |
-        if [ -f "application.fam" ]; then
-          sed -i '/fap_icon_assets="assets"/d' application.fam
-          echo "Updated application.fam:"
-          cat application.fam
-        else
-          echo "::error::No application.fam found"
-          exit 1
-        fi
-
-    - name: Pre-build validation
-      run: |
-        echo "Validating build environment for ${{ matrix.channel }} channel..."
-        echo "Checking for application.fam..."
-        if [ -f "application.fam" ]; then
-          echo "application.fam found:"
-          cat application.fam
-        else
-          echo "::error::No application.fam found in $(pwd)"
-          exit 1
-        fi
-        
-        echo "Listing source files (*.c, *.h)..."
-        ls -la *.c *.h 2>/dev/null || echo "::warning::No .c or .h files found"
-        
-        echo "Checking icons directory..."
-        if [ -d "icons" ]; then
-          echo "icons directory found:"
-          ls -la icons/
-          if [ -f "icons/jammer_icon.png" ]; then
-            echo "jammer_icon.png found"
-          else
-            echo "::warning::jammer_icon.png not found in icons/"
+      - name: Remove fap_icon_assets from application.fam
+        run: |
+          if [ -f "application.fam" ]; then
+            sed -i '/fap_icon_assets="assets"/d' application.fam
           fi
-        else
-          echo "::warning::No icons directory found"
-        fi
-        
-        echo "Checking dist directory..."
-        mkdir -p dist
-        ls -la dist/ 2>/dev/null || echo "dist directory is empty"
 
-    - name: Get app name from source
-      id: app-info
-      run: |
-        if [ -f "application.fam" ]; then
-          APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
-        elif ls *.c 2>/dev/null; then
-          APP_NAME=$(grep -r "\.name.*=" *.c | sed 's/.*\.name.*=.*"\([^"]*\)".*/\1/' | head -1)
-        fi
-        
-        if [ -z "$APP_NAME" ]; then
-          APP_NAME=$(basename "$(pwd)")
-        fi
-        
-        APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
-        echo "name=$APP_NAME" >> $GITHUB_OUTPUT
-        echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
-        echo "App name: $APP_NAME"
-
-    - name: Get current timestamp
-      id: timestamp
-      run: |
-        TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-        echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-        echo $TIMESTAMP > timestamp.txt
-        echo "Generated timestamp: $TIMESTAMP"
-
-    - name: Build FAP
-      run: |
-        echo "Building FAP for ${{ matrix.channel }} channel..."
-        mkdir -p build_logs
-        BUILD_LOG="build_logs/ufbt_build_${{ matrix.channel }}.log"
-        ufbt build 2>&1 | tee "$BUILD_LOG"
-        BUILD_EXIT_CODE=${PIPESTATUS[0]}
-        
-        if [ $BUILD_EXIT_CODE -ne 0 ]; then
-          echo "::error::ufbt build failed for ${{ matrix.channel }} channel (exit code $BUILD_EXIT_CODE)"
-          echo "Build log contents:"
-          cat "$BUILD_LOG"
-          echo "ufbt status:"
-          ufbt status
-          echo "Directory contents:"
-          ls -la
-          echo "dist directory contents:"
-          ls -la dist/ 2>/dev/null || echo "dist directory is empty"
-          echo "ufbt build directory contents:"
-          ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "ufbt build directory is empty"
-          echo "application.fam contents:"
-          cat application.fam 2>/dev/null || echo "No application.fam found"
-          exit 1
-        fi
-        
-        echo "Checking ufbt build directory for FAP file..."
-        FAP_FILE_UFBT=$(find /home/runner/.ufbt/build/ -name "*.fap" | head -1)
-        if [ -n "$FAP_FILE_UFBT" ]; then
-          echo "FAP file found in ufbt build directory: $FAP_FILE_UFBT"
-          mkdir -p dist
-          cp "$FAP_FILE_UFBT" dist/jammer_app.fap
-          echo "Copied FAP file to dist/jammer_app.fap"
-        fi
-        
-        FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
-        if [ -z "$FAP_FILE" ]; then
-          echo "::error::No .fap file generated in dist/ for ${{ matrix.channel }} channel"
-          echo "dist directory contents:"
-          ls -la dist/ 2>/dev/null || echo "dist directory is empty"
-          echo "ufbt build directory contents:"
-          ls -la /home/runner/.ufbt/build/ 2>/dev/null || echo "ufbt build directory is empty"
-          exit 1
-        fi
-
-    - name: Find and rename FAP
-      id: fap-info
-      run: |
-        FAP_FILE=$(find . -name "*.fap" -path "*/dist/*" | head -1)
-        if [ -z "$FAP_FILE" ]; then
-          echo "::error::No FAP file found in dist/ for ${{ matrix.channel }} channel"
-          exit 1
-        fi
-        
-        NEW_NAME="${{ steps.app-info.outputs.clean_name }}-${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}.fap"
-        cp "$FAP_FILE" "$NEW_NAME"
-        echo "filename=$NEW_NAME" >> $GITHUB_OUTPUT
-        echo "Renamed FAP file to: $NEW_NAME"
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.channel }}-artifacts
-        path: |
-          ${{ steps.fap-info.outputs.filename }}
-          timestamp.txt
-
-  create-releases:
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        channel:
-          - release
-          - dev
-
-    steps:
-    - name: Enable debug logging
-      run: echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Download artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ matrix.channel }}-artifacts
-        path: ./release-files
-
-    - name: Get timestamp
-      id: timestamp
-      run: |
-        if [ -f "./release-files/timestamp.txt" ]; then
-          TIMESTAMP=$(cat ./release-files/timestamp.txt)
+      - name: Get timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-          echo "Retrieved timestamp: $TIMESTAMP"
-        else
-          echo "::error::Timestamp file not found"
-          exit 1
-        fi
 
-    - name: Get app info
-      id: app-info
-      run: |
-        if [ -f "application.fam" ]; then
+      - name: Build with ufbt
+        uses: flipperdevices/flipperzero-ufbt-action@v0.1.2
+        id: build-app
+        with:
+          sdk-channel: ${{ matrix.sdk-channel }}
+          sdk-index-url: ${{ matrix.sdk-index-url || '' }}
+
+      - name: Get app info
+        id: app-info
+        run: |
           APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
-        else
-          APP_NAME=$(basename "$(pwd)")
-        fi
-        echo "name=$APP_NAME" >> $GITHUB_OUTPUT
+          APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+          echo "name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
 
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ matrix.channel }}-${{ steps.timestamp.outputs.timestamp }}
-        name: ${{ steps.app-info.outputs.name }} for ${{ matrix.channel }} (${{ steps.timestamp.outputs.timestamp }})
-        files: ./release-files/*.fap
-        body: |
-          ## ${{ steps.app-info.outputs.name }}
-          
-          **Built for:** ${{ matrix.channel }} channel (compatible with official, momentum, unleashed firmwares)
-          
-          This FAP was automatically built on ${{ steps.timestamp.outputs.timestamp }}.
-          
-          **Installation:**
-          1. Download the .fap file
-          2. Copy to your Flipper Zero's `apps` folder
-          3. The app will appear in your applications menu
-          
-          **Firmware Compatibility:**
-          - ✅ Official, Momentum, Unleashed firmwares (${{ matrix.channel }} channel, latest at build time)
-          - ❌ Other channels (use the appropriate release)
-          
-          **Channel Info:**
-          - **Release**: Stable, tested firmware
-          - **Dev**: Latest features, may be unstable
-        draft: false
-        prerelease: ${{ matrix.channel == 'dev' }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.release-tag }}-${{ steps.timestamp.outputs.timestamp }}
+          path: ${{ steps.build-app.outputs.fap-artifacts }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ matrix.release-tag }}-${{ steps.timestamp.outputs.timestamp }}
+          name: ${{ steps.app-info.outputs.name }} - ${{ matrix.name }} (${{ steps.timestamp.outputs.timestamp }})
+          files: ${{ steps.build-app.outputs.fap-artifacts }}
+          body: |
+            ## ${{ steps.app-info.outputs.name }}
+            
+            **Firmware:** ${{ matrix.name }}
+            **Built:** ${{ steps.timestamp.outputs.timestamp }}
+            
+            ### Installation
+            1. Download the .fap file
+            2. Copy to your Flipper Zero's `apps` folder
+            3. The app will appear in your applications menu
+            
+            ### Compatibility
+            - ✅ ${{ matrix.name }}
+            - ❌ Other firmware/channel combinations
+          draft: false
+          prerelease: ${{ contains(matrix.sdk-channel, 'dev') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup-old-releases:
-    needs: [build, create-releases]
+    needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Cleanup releases older than 10 weeks
-      run: |
-        CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
-        echo "Cutoff timestamp: $CUTOFF_DATE"
-        
-        RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          https://api.github.com/repos/${{ github.repository }}/releases)
-        
-        OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
-          '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
-        
-        for release_id in $OLD_RELEASES; do
-          echo "Deleting old release: $release_id"
-          curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
-        done
+      - name: Cleanup releases older than 10 weeks
+        run: |
+          CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
+          
+          RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases)
+          
+          OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
+            '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
+          
+          for release_id in $OLD_RELEASES; do
+            echo "Deleting old release: $release_id"
+            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+          done
