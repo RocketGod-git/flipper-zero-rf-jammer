@@ -8,7 +8,6 @@ App(
     stack_size=2 * 1024,
     fap_category="Sub-GHz",
     fap_version="0.1",
-    fap_icon_assets="assets",
     fap_author="@RocketGod-git",
     fap_description="Jammer for Flipper Zero",
     fap_icon="icons/jammer_icon.png",
