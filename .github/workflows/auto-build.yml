@@ -2,11 +2,11 @@ name: Weekly Auto Build FAP
 
 on:
   schedule:
-    - cron: '0 12 * * 0'
+    - cron: "0 12 * * 0"
   workflow_dispatch:
     inputs:
       force_build:
-        description: 'Force build'
+        description: "Force build"
         required: false
         default: false
         type: boolean
@@ -46,16 +46,10 @@ jobs:
             sdk-index-url: https://up.momentum-fw.dev/firmware/directory.json
             release-tag: momentum-dev
 
-    name: 'Build for ${{ matrix.name }}'
+    name: "Build for ${{ matrix.name }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Remove fap_icon_assets from application.fam
-        run: |
-          if [ -f "application.fam" ]; then
-            sed -i '/fap_icon_assets="assets"/d' application.fam
-          fi
 
       - name: Get timestamp
         id: timestamp
@@ -92,15 +86,15 @@ jobs:
           files: ${{ steps.build-app.outputs.fap-artifacts }}
           body: |
             ## ${{ steps.app-info.outputs.name }}
-            
+
             **Firmware:** ${{ matrix.name }}
             **Built:** ${{ steps.timestamp.outputs.timestamp }}
-            
+
             ### Installation
             1. Download the .fap file
             2. Copy to your Flipper Zero's `apps` folder
             3. The app will appear in your applications menu
-            
+
             ### Compatibility
             - ✅ ${{ matrix.name }}
             - ❌ Other firmware/channel combinations
@@ -116,13 +110,13 @@ jobs:
       - name: Cleanup releases older than 10 weeks
         run: |
           CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
-          
+
           RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/releases)
-          
+
           OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
             '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
-          
+
           for release_id in $OLD_RELEASES; do
             echo "Deleting old release: $release_id"
             curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
