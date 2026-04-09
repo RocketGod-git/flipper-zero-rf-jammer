@@ -114,6 +114,8 @@ jobs:
     needs: check-sdk-updates
     if: needs.check-sdk-updates.outputs.any-updated == 'true'
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # ← add this
     strategy:
       fail-fast: false
       matrix:
@@ -179,14 +181,30 @@ jobs:
         if: steps.should-build.outputs.updated == 'true'
         id: verify
         run: |
-          FAP_DIR="${{ steps.build-app.outputs.fap-artifacts }}"
-          FAP_COUNT=$(find "$FAP_DIR" -name "*.fap" | wc -l)
-          echo "Found $FAP_COUNT .fap file(s) in $FAP_DIR"
-          if [ "$FAP_COUNT" -eq 0 ]; then
-            echo "ERROR: No .fap files produced by build step."
+          FAP_ARTIFACTS="${{ steps.build-app.outputs.fap-artifacts }}"
+
+          # fap-artifacts may be a file path or a directory depending on
+          # the ufbt action version. Normalize to a glob that always works.
+          if [ -f "$FAP_ARTIFACTS" ] && echo "$FAP_ARTIFACTS" | grep -q '\.fap$'; then
+            # It's the .fap file itself
+            FAP_GLOB="$FAP_ARTIFACTS"
+            FAP_COUNT=1
+          elif [ -d "$FAP_ARTIFACTS" ]; then
+            # It's a directory — glob inside it
+            FAP_GLOB="$FAP_ARTIFACTS/*.fap"
+            FAP_COUNT=$(find "$FAP_ARTIFACTS" -name "*.fap" | wc -l)
+          else
+            echo "ERROR: fap-artifacts path '$FAP_ARTIFACTS' is neither a .fap file nor a directory."
             exit 1
           fi
-          echo "fap-glob=$FAP_DIR/*.fap" >> $GITHUB_OUTPUT
+
+          echo "Found $FAP_COUNT .fap file(s): $FAP_GLOB"
+          if [ "$FAP_COUNT" -eq 0 ]; then
+            echo "ERROR: No .fap files found."
+            exit 1
+          fi
+
+          echo "fap-glob=$FAP_GLOB" >> $GITHUB_OUTPUT
 
       - name: Get app info
         if: steps.should-build.outputs.updated == 'true'
