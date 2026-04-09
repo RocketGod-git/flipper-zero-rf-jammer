@@ -2,11 +2,11 @@ name: Daily Auto Build FAP
 
 on:
   schedule:
-    - cron: "0 12 * * *" 
+    - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:
       force_build:
-        description: "Force build"
+        description: "Force build even if no SDK update"
         required: false
         default: false
         type: boolean
@@ -15,7 +15,100 @@ permissions:
   contents: write
 
 jobs:
+
+  check-sdk-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      any-updated: ${{ steps.compare.outputs.any-updated }}
+      updated-map: ${{ steps.compare.outputs.updated-map }}
+
+    steps:
+      - name: Restore SDK version cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .sdk-versions
+          key: sdk-versions-${{ github.run_id }}
+          restore-keys: sdk-versions-
+
+      - name: Fetch current SDK versions and compare
+        id: compare
+        run: |
+          mkdir -p .sdk-versions
+
+          FORCE="${{ github.event.inputs.force_build }}"
+
+          fetch_version() {
+            local channel="$1"
+            local index_url="$2"
+
+            if [ -z "$index_url" ]; then
+              index_url="https://update.flipperzero.one/firmware/directory.json"
+            fi
+
+            local json_channel
+            case "$channel" in
+              release) json_channel="release" ;;
+              dev)     json_channel="development" ;;
+              *)       json_channel="$channel" ;;
+            esac
+
+            curl -sf "$index_url" \
+              | jq -r --arg ch "$json_channel" \
+                '.channels[] | select(.id == $ch) | .versions[0].version // .versions[0].timestamp | tostring' \
+              2>/dev/null || echo "unknown"
+          }
+
+          ANY_UPDATED="false"
+          UPDATED_MAP="{}"
+
+          check_variant() {
+            local tag="$1"
+            local channel="$2"
+            local index_url="$3"
+
+            local cache_file=".sdk-versions/${tag}"
+            local current_version
+            current_version=$(fetch_version "$channel" "$index_url")
+
+            local cached_version="none"
+            if [ -f "$cache_file" ]; then
+              cached_version=$(cat "$cache_file")
+            fi
+
+            echo "[$tag] cached=$cached_version  current=$current_version"
+
+            local updated="false"
+            if [ "$FORCE" = "true" ] || [ "$current_version" != "$cached_version" ]; then
+              updated="true"
+              ANY_UPDATED="true"
+              echo "  -> Update detected (or force), will build."
+            else
+              echo "  -> No change, skipping build."
+            fi
+
+            echo "$current_version" > "$cache_file"
+
+            UPDATED_MAP=$(echo "$UPDATED_MAP" | jq \
+              --arg k "$tag" --arg v "$updated" '. + {($k): $v}')
+          }
+
+          check_variant "official-release"  "release" ""
+          check_variant "official-dev"      "dev"     ""
+          check_variant "unleashed-release" "release" "https://up.unleashedflip.com/directory.json"
+          check_variant "unleashed-dev"     "dev"     "https://up.unleashedflip.com/directory.json"
+          check_variant "momentum-release"  "release" "https://up.momentum-fw.dev/firmware/directory.json"
+          check_variant "momentum-dev"      "dev"     "https://up.momentum-fw.dev/firmware/directory.json"
+
+          echo "any-updated=$ANY_UPDATED"  >> $GITHUB_OUTPUT
+          echo "updated-map=$UPDATED_MAP"  >> $GITHUB_OUTPUT
+          echo ""
+          echo "Summary: any-updated=$ANY_UPDATED"
+          echo "updated-map: $UPDATED_MAP"
+
   build:
+    needs: check-sdk-updates
+    if: needs.check-sdk-updates.outputs.any-updated == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -48,42 +141,74 @@ jobs:
 
     name: "Build for ${{ matrix.name }}"
     steps:
+      - name: Check if this variant needs a build
+        id: should-build
+        run: |
+          MAP='${{ needs.check-sdk-updates.outputs.updated-map }}'
+          TAG='${{ matrix.release-tag }}'
+          UPDATED=$(echo "$MAP" | jq -r --arg t "$TAG" '.[$t] // "false"')
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+          if [ "$UPDATED" != "true" ]; then
+            echo "No SDK update for $TAG — skipping."
+          fi
+
       - name: Checkout
+        if: steps.should-build.outputs.updated == 'true'
         uses: actions/checkout@v4
 
       - name: Get timestamp
+        if: steps.should-build.outputs.updated == 'true'
         id: timestamp
         run: |
           TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
 
       - name: Build with ufbt
+        if: steps.should-build.outputs.updated == 'true'
         uses: flipperdevices/flipperzero-ufbt-action@v0.1.2
         id: build-app
         with:
           sdk-channel: ${{ matrix.sdk-channel }}
-          sdk-index-url: ${{ matrix.sdk-index-url || '' }}
+          sdk-index-url: ${{ matrix.sdk-index-url }}
+
+      - name: Verify .fap artifacts exist
+        if: steps.should-build.outputs.updated == 'true'
+        id: verify
+        run: |
+          FAP_DIR="${{ steps.build-app.outputs.fap-artifacts }}"
+          FAP_COUNT=$(find "$FAP_DIR" -name "*.fap" | wc -l)
+          echo "Found $FAP_COUNT .fap file(s) in $FAP_DIR"
+          if [ "$FAP_COUNT" -eq 0 ]; then
+            echo "ERROR: No .fap files produced by build step."
+            exit 1
+          fi
+          echo "fap-glob=$FAP_DIR/*.fap" >> $GITHUB_OUTPUT
 
       - name: Get app info
+        if: steps.should-build.outputs.updated == 'true'
         id: app-info
         run: |
-          APP_NAME=$(grep -E "name\s*=" application.fam | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
-          APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
+          APP_NAME=$(grep -E "name\s*=" application.fam \
+            | sed 's/.*name\s*=\s*"\([^"]*\)".*/\1/' | head -1)
+          APP_NAME_CLEAN=$(echo "$APP_NAME" \
+            | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g')
           echo "name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "clean_name=$APP_NAME_CLEAN" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
+        if: steps.should-build.outputs.updated == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.release-tag }}-${{ steps.timestamp.outputs.timestamp }}
-          path: ${{ steps.build-app.outputs.fap-artifacts }}
+          path: ${{ steps.verify.outputs.fap-glob }}
 
       - name: Create Release
+        if: steps.should-build.outputs.updated == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ matrix.release-tag }}-${{ steps.timestamp.outputs.timestamp }}
           name: ${{ steps.app-info.outputs.name }} - ${{ matrix.name }} (${{ steps.timestamp.outputs.timestamp }})
-          files: ${{ steps.build-app.outputs.fap-artifacts }}
+          files: ${{ steps.verify.outputs.fap-glob }}
           body: |
             ## ${{ steps.app-info.outputs.name }}
 
@@ -91,8 +216,8 @@ jobs:
             **Built:** ${{ steps.timestamp.outputs.timestamp }}
 
             ### Installation
-            1. Download the .fap file
-            2. Copy to your Flipper Zero's `apps` folder
+            1. Download the `.fap` file below
+            2. Copy it to your Flipper Zero's `apps` folder via qFlipper or SD card
             3. The app will appear in your applications menu
 
             ### Compatibility
@@ -104,21 +229,45 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup-old-releases:
-    needs: build
+    needs: [check-sdk-updates, build]
+    if: always() && needs.check-sdk-updates.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Cleanup releases older than 10 weeks
+      - name: Delete releases and tags older than 10 weeks
         run: |
           CUTOFF_DATE=$(date -u -d "70 days ago" +%s)
 
-          RELEASES=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/releases)
+          RELEASES=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100")
 
-          OLD_RELEASES=$(echo "$RELEASES" | jq -r --argjson cutoff "$CUTOFF_DATE" \
-            '.[] | select((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff) | .id')
+          OLD_RELEASE_DATA=$(echo "$RELEASES" | jq -c \
+            --argjson cutoff "$CUTOFF_DATE" \
+            '.[] | select(
+              (.created_at | gsub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $cutoff
+            ) | {id: .id, tag: .tag_name}')
 
-          for release_id in $OLD_RELEASES; do
-            echo "Deleting old release: $release_id"
-            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+          if [ -z "$OLD_RELEASE_DATA" ]; then
+            echo "No releases older than 10 weeks found."
+            exit 0
+          fi
+
+          echo "$OLD_RELEASE_DATA" | while IFS= read -r entry; do
+            RELEASE_ID=$(echo "$entry" | jq -r '.id')
+            TAG_NAME=$(echo "$entry"  | jq -r '.tag')
+
+            echo "Deleting release $RELEASE_ID (tag: $TAG_NAME)"
+
+            curl -s -X DELETE \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+
+            curl -s -X DELETE \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME"
+
+            echo "Deleted release $RELEASE_ID and tag $TAG_NAME"
           done
