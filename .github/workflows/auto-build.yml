@@ -18,6 +18,8 @@ jobs:
 
   check-sdk-updates:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
       any-updated: ${{ steps.compare.outputs.any-updated }}
       updated-map: ${{ steps.compare.outputs.updated-map }}
@@ -82,14 +84,14 @@ jobs:
             if [ "$FORCE" = "true" ] || [ "$current_version" != "$cached_version" ]; then
               updated="true"
               ANY_UPDATED="true"
-              echo "  -> Update detected (or force), will build."
+              echo "  → Update detected (or force), will build."
             else
-              echo "  -> No change, skipping build."
+              echo "  → No change, skipping build."
             fi
 
             echo "$current_version" > "$cache_file"
 
-            UPDATED_MAP=$(echo "$UPDATED_MAP" | jq \
+            UPDATED_MAP=$(echo "$UPDATED_MAP" | jq -c \
               --arg k "$tag" --arg v "$updated" '. + {($k): $v}')
           }
 
@@ -100,11 +102,13 @@ jobs:
           check_variant "momentum-release"  "release" "https://up.momentum-fw.dev/firmware/directory.json"
           check_variant "momentum-dev"      "dev"     "https://up.momentum-fw.dev/firmware/directory.json"
 
-          echo "any-updated=$ANY_UPDATED"  >> $GITHUB_OUTPUT
-          echo "updated-map=$UPDATED_MAP"  >> $GITHUB_OUTPUT
-          echo ""
           echo "Summary: any-updated=$ANY_UPDATED"
-          echo "updated-map: $UPDATED_MAP"
+          echo "updated-map: $(echo "$UPDATED_MAP" | jq -c .)"
+
+          {
+            echo "any-updated=$ANY_UPDATED"
+            echo "updated-map=$(echo "$UPDATED_MAP" | jq -c .)"
+          } >> $GITHUB_OUTPUT
 
   build:
     needs: check-sdk-updates
